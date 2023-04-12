@@ -320,19 +320,32 @@ auto NameResolver::ResolveNames(Expression& expression,
         CARBON_RETURN_IF_ERROR(ResolveNames(*field, enclosing_scope));
       }
       break;
-    case ExpressionKind::StructLiteral:
+    case ExpressionKind::StructLiteral: {
+      std::set<std::string_view> member_names;
       for (FieldInitializer& init : cast<StructLiteral>(expression).fields()) {
         CARBON_RETURN_IF_ERROR(
             ResolveNames(init.expression(), enclosing_scope));
+        if (!member_names.insert(init.name()).second) {
+          return ProgramError(init.expression().source_loc())
+                 << "Duplicate name `" << init.name() << "` in struct literal";
+        }
       }
       break;
-    case ExpressionKind::StructTypeLiteral:
+    }
+    case ExpressionKind::StructTypeLiteral: {
+      std::set<std::string_view> member_names;
       for (FieldInitializer& init :
            cast<StructTypeLiteral>(expression).fields()) {
         CARBON_RETURN_IF_ERROR(
             ResolveNames(init.expression(), enclosing_scope));
+        if (!member_names.insert(init.name()).second) {
+          return ProgramError(init.expression().source_loc())
+                 << "Duplicate name `" << init.name()
+                 << "` in struct type literal";
+        }
       }
       break;
+    }
     case ExpressionKind::IdentifierExpression: {
       auto& identifier = cast<IdentifierExpression>(expression);
       CARBON_ASSIGN_OR_RETURN(
@@ -546,7 +559,8 @@ auto NameResolver::ResolveNames(Statement& statement,
           enclosing_scope.ResolveReturned();
       if (!returned_var_def_view.has_value()) {
         return ProgramError(ret_var_stmt.source_loc())
-               << "`return var` is not allowed without a returned var defined "
+               << "`return var` is not allowed without a returned var "
+                  "defined "
                   "in scope.";
       }
       ret_var_stmt.set_value_node(*returned_var_def_view);
@@ -685,11 +699,11 @@ auto NameResolver::ResolveNames(Declaration& declaration,
         CARBON_RETURN_IF_ERROR(impl_scope.Add(binding->name(), binding));
       }
       CARBON_RETURN_IF_ERROR(ResolveNames(*impl.impl_type(), impl_scope));
-      // Only add `Self` to the impl_scope if it is not already in the enclosing
-      // scope. Add `Self` after we resolve names for the impl_type, so you
-      // can't write something like `impl Vector(Self) as ...`. Add `Self`
-      // before resolving names in the interface, so you can write something
-      // like `impl VeryLongTypeName as AddWith(Self)`
+      // Only add `Self` to the impl_scope if it is not already in the
+      // enclosing scope. Add `Self` after we resolve names for the impl_type,
+      // so you can't write something like `impl Vector(Self) as ...`. Add
+      // `Self` before resolving names in the interface, so you can write
+      // something like `impl VeryLongTypeName as AddWith(Self)`
       if (!enclosing_scope.Resolve("Self", impl.source_loc()).ok()) {
         CARBON_RETURN_IF_ERROR(AddExposedNames(*impl.self(), impl_scope));
       }
